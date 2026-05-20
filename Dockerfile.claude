@@ -1,8 +1,14 @@
-FROM node:20-slim
+FROM debian:bookworm-slim
+
+# debian:bookworm-slim has no pre-existing user at UID 1000 (unlike node:* or
+# ubuntu:* images), so we can freely create our own user below without conflict.
 
 RUN apt-get update && apt-get install -y \
-    git \
+    curl \
     ca-certificates \
+    git \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code
