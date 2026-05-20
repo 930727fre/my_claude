@@ -92,7 +92,12 @@ volumes:
 
 ```yaml
 volumes:
-  - ${HOME}/my_claude/CLAUDE.md:/home/claude/.claude/CLAUDE.md
+  - type: bind
+    source: ${HOME}/my_claude/CLAUDE.md
+    target: /home/claude/.claude/CLAUDE.md
+    read_only: true
+    bind:
+      create_host_path: false
 ```
 
 **Why this design**:
@@ -115,6 +120,8 @@ volumes:
 The entire `/home/claude/.claude/` is a named volume, **but `CLAUDE.md` (a single file) is overridden by a bind mount**. This mount overlay is officially supported by docker: multiple mounts on the same point are sorted by target-path depth, and the child path always overrides the parent (independent of YAML write order). This lets us "use volume by default, but make exceptions for specific files".
 
 In practice the compose entry uses long-form syntax with `create_host_path: false`: if the source (`~/my_claude/CLAUDE.md`) doesn't exist, `compose up` fails immediately instead of docker's default behavior (silently creating an empty directory, with the container starting up but Claude unable to read user instructions, with no error raised).
+
+The bind is also `read_only: true` — the host is the only writer, so a successful in-container prompt injection can't poison the file for the next session.
 
 ### Decision 5: Memory system handling (easy to confuse — pay attention)
 
@@ -165,7 +172,7 @@ This design keeps auto memory enabled and accepts the risk — cross-session mem
 
 **Workflow**:
 
-1. Claude edits and commits inside the container (under the fake identity)
+1. Claude edits and commits inside the container
 2. You exit the session and return to the host
 3. `git diff origin/main..HEAD` to review what Claude did
 4. Push with your host SSH key
@@ -182,20 +189,19 @@ This design keeps auto memory enabled and accepts the risk — cross-session mem
 - ⚠️ Claude can't open PRs by itself — no fully automated "edit → push → open PR" flow
 - Workflow impact: you have an extra "push from host" step, but that step is also a review gate
 
-### Decision 7: Git inside the container uses a fake identity
+### Decision 7: Git inside the container is authored as you, with a container tag
 
 **Setup** (in the Dockerfile):
 
 ```dockerfile
-RUN git config --global user.email "claude@container.local" && \
-    git config --global user.name "Claude (container)"
+RUN git config --global user.email "930727fre@gmail.com" && \
+    git config --global user.name "Freddy Chuang (my_claude container)"
 ```
 
 **Purpose**:
 
 - Lets `git commit` work (git requires an author identity)
-- Doesn't leak your real email/name
-- Commit author shows "Claude (container)", so on the host you can spot which commits came from Claude when reading the log
+- The `(my_claude container)` suffix in the author name makes container-authored commits visually distinct in `git log` on the host
 
 <a id="decision-8"></a>
 ### Decision 8: Container runs as a non-root user, UID/GID aligned with the host
@@ -206,10 +212,10 @@ RUN git config --global user.email "claude@container.local" && \
 
 On Linux, container UIDs **map directly** to host UIDs (when user namespaces aren't enabled). If the container runs as root (UID 0), every file written through a bind mount ends up root-owned on the host. That cascades into several problems:
 
-1. **`git status` / `git diff` get blocked**: git 2.35+'s `safe.directory` check sees `.git/` ownership doesn't match the current user and refuses all operations
-2. **`git checkout` / `git pull` / `git merge` fail**: host-side git running as your regular user can't overwrite root-owned files in the working tree
-3. **Manual editing needs sudo**: even fixing a typo requires `sudo vim`
-4. **`sudo git push` has its own issues**: root's `$HOME` is `/root`, so it can't read your SSH key
+- **`git status` / `git diff` get blocked**: git 2.35+'s `safe.directory` check sees `.git/` ownership doesn't match the current user and refuses all operations
+- **`git checkout` / `git pull` / `git merge` fail**: host-side git running as your regular user can't overwrite root-owned files in the working tree
+- **Manual editing needs sudo**: even fixing a typo requires `sudo vim`
+- **`sudo git push` has its own issues**: root's `$HOME` is `/root`, so it can't read your SSH key
 
 **Solution**: create a non-root user inside the container whose UID/GID matches the host user, eliminating the ownership mismatch at its source.
 
@@ -244,44 +250,39 @@ The next section ("Scope of 'won't accidentally push sensitive info'") takes a d
 | Bind-mount ownership drifting and breaking host-side git | Container user UID/GID aligns with the host, so files come out owned by you ([Decision 8](#decision-8)) |
 | Claude container interfering with app stack startup | Claude lives in an independent compose project with a separate lifecycle |
 | `up -d --build` restarting Claude sessions | Same |
+| In-container prompt injection poisoning `CLAUDE.md` for the next session | The bind mount is `read_only: true`; the host is the only writer |
 
 ### Residual risks (known and accepted)
 
-**1. Prompt injection inside the container modifying working-directory code**
+- **Prompt injection inside the container modifying working-directory code**
 
-A malicious dependency or poisoned document can make Claude write things into a repo, which show up on the host because the repo is bind-mounted.
+  A malicious dependency or poisoned document can make Claude write things into a repo, which show up on the host because the repo is bind-mounted.
 
-**Mitigation**: always check `git diff` before pushing. This is the design's final gate.
+  **Mitigation**: always check `git diff` before pushing. This is the design's final gate.
 
-**2. A malicious dependency in the container reading the project's conversation history**
+- **A malicious dependency in the container reading the project's conversation history**
 
-Conversation history lives in the named volume, and any process in the container can read it. History may contain code you discussed with Claude, contents of config files, environment variables.
+  Conversation history lives in the named volume, and any process in the container can read it. History may contain code you discussed with Claude, contents of config files, environment variables.
 
-**Mitigation**: you already treat Claude as an outsider and don't paste sensitive info into the conversation.
+  **Mitigation**: you already treat Claude as an outsider and don't paste sensitive info into the conversation.
 
-**3. Prompt injection inside the container contaminating user instructions**
+- **Your GitHub account gets compromised and the `my_claude` repo gets modified**
 
-`CLAUDE.md` is bind-mounted (not read-only), so Claude inside the container can write to it. A successful injection could plant malicious instructions there for the next session to auto-load.
+  An attacker edits `~/my_claude/CLAUDE.md` to insert malicious instructions.
 
-**Mitigation**: the host has no Claude Code installed; `CLAUDE.md` is only updated when you edit it directly on the host or via `git pull`. The blast radius is equivalent to auto memory being poisoned — known and accepted.
+  **Mitigation**: you `git pull` manually and look at the diff. No auto-fetch and no external PRs accepted.
 
-**4. Your GitHub account gets compromised and the `my_claude` repo gets modified**
+- **Container escape exploit**
 
-An attacker edits `~/my_claude/CLAUDE.md` to insert malicious instructions.
+  A CVE-class docker bug lets code break out of the container.
 
-**Mitigation**: you `git pull` manually and look at the diff. No auto-fetch and no external PRs accepted.
+  **Mitigation**: keep docker up to date. Pragmatically, this is beyond what an individual developer needs to worry about.
 
-**5. Container escape exploit**
+- **Host itself is compromised**
 
-A CVE-class docker bug lets code break out of the container.
+  If the host falls, container isolation doesn't matter.
 
-**Mitigation**: keep docker up to date. Pragmatically, this is beyond what an individual developer needs to worry about.
-
-**6. Host itself is compromised**
-
-If the host falls, container isolation doesn't matter.
-
-**Mitigation**: not in this threat model — it's a higher-level concern.
+  **Mitigation**: not in this threat model — it's a higher-level concern.
 
 ### Attack paths not covered (out of scope)
 
@@ -395,29 +396,28 @@ Few people need it; an individual developer probably doesn't reach this complexi
 
 A few principles running through this design:
 
-**1. Clear trust boundaries**
+- **Clear trust boundaries**
 
-Each component has a different trust level:
+  Each component has a different trust level:
+  - User instructions (you write them): high trust
+  - OAuth token: medium trust (sensitive but has to be given to Claude)
+  - Conversation history: medium trust
+  - Arbitrary code from dependencies running inside the container: low trust
 
-- User instructions (you write them): high trust
-- OAuth token: medium trust (sensitive but has to be given to Claude)
-- Conversation history: medium trust
-- Arbitrary code from dependencies running inside the container: low trust
+  Different trust levels don't share a single storage location. That's why `~/.claude/` is split into "volume + user instructions bind", not handled as one directory.
 
-Different trust levels don't share a single storage location. That's why `~/.claude/` is split into "volume + user instructions bind", not handled as one directory.
+- **The container has attribution, not credentials**
 
-**2. The container is an execution environment, not an identity**
+  The container can author commits as you (with a `(my_claude container)` tag for `git log` clarity), but it has no GitHub credentials, SSH key, or other way to propagate in your name. Push staying on the host is the structural enforcement.
 
-Nothing inside the container should have the ability to act in your name. Hence the fake git identity, push staying on the host, and no GitHub credentials in the container.
+- **The last gate is a human**
 
-**3. The last gate is a human**
+  No matter how much automation you build, the `git diff` before `git push` can't be skipped. Every piece of automation should be designed to make review easier, not to bypass it.
 
-No matter how much automation you build, the `git diff` before `git push` can't be skipped. Every piece of automation should be designed to make review easier, not to bypass it.
+- **Treat AI as an external collaborator**
 
-**4. Treat AI as an external collaborator**
+  Don't feed sensitive information into your interactions with Claude. This discipline is more fundamental than any technical isolation — tech has bugs and can be misconfigured, but "I'm just not going to tell it" doesn't.
 
-Don't feed sensitive information into your interactions with Claude. This discipline is more fundamental than any technical isolation — tech has bugs and can be misconfigured, but "I'm just not going to tell it" doesn't.
+- **Optimize for recovery, not infallibility**
 
-**5. Optimize for recovery, not infallibility**
-
-Every container can be wiped and rebuilt individually. Every volume can be deleted individually. When something goes wrong, the blast radius is contained to one project or one container. The design isn't "guaranteed nothing goes wrong" — it's "when something goes wrong, the damage is small and recovery is quick".
+  Every container can be wiped and rebuilt individually. Every volume can be deleted individually. When something goes wrong, the blast radius is contained to one project or one container. The design isn't "guaranteed nothing goes wrong" — it's "when something goes wrong, the damage is small and recovery is quick".

@@ -3,7 +3,7 @@
 *.swp
 *.swo
 
-# 通用暫存
+# Generic temp files
 *.tmp
 scratch.*
 debug.log

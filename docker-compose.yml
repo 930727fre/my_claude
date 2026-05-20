@@ -18,6 +18,7 @@ services:
       - type: bind
         source: ${HOME}/my_claude/CLAUDE.md
         target: /home/claude/.claude/CLAUDE.md
+        read_only: true
         bind:
           create_host_path: false
       # Mount whatever repos you need — adjust freely

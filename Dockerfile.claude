@@ -27,8 +27,8 @@ WORKDIR /home/claude
 # the mount point as root-owned and the claude user can't write to it.
 RUN mkdir -p /home/claude/.claude
 
-# Fake identity: lets git commit work without leaking the real GitHub identity
-RUN git config --global user.email "claude@container.local" && \
-    git config --global user.name "Claude (container)"
+# Identity for in-container commits; the suffix makes them visually distinct in `git log` on the host
+RUN git config --global user.email "930727fre@gmail.com" && \
+    git config --global user.name "Freddy Chuang (my_claude container)"
 
 ENTRYPOINT ["/bin/bash"]

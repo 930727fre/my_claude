@@ -73,7 +73,7 @@ When you're not using the container you can `docker compose down`, but idle has 
 - **Push happens on the host, not in the container.** There's no GitHub credential inside the container; this is a deliberate security gate, not a bug.
 - **Conversation history is keyed by cwd.** Different subdirectories of the same repo are treated as different projects with separate histories — get into the habit of launching `claude` from the repo root.
 - **`HOST_UID` / `HOST_GID` must be exported in your shell.** Compose pulls these into the build args; if they're missing, every `docker compose` command fails immediately. This is the defense against silent ownership mismatch — bind-mounted files would otherwise end up with the wrong owner, host-side git would get blocked by `safe.directory`, and editing would need sudo. Run `./setup.sh` to see the export lines to add.
-- **Strongly recommended: disable git hooks globally on the host**: `git config --global core.hooksPath /dev/null`. See [`DESIGN.md`](./DESIGN.md#git-hooks) for the reasoning.
+- **Strongly recommended: disable git hooks globally on the host**: `git config --global core.hooksPath /dev/null`. `setup.sh` warns you if this isn't set. See [`DESIGN.md`](./DESIGN.md#git-hooks) for the reasoning.
 
 ---
 

@@ -37,4 +37,10 @@ All edits Claude makes to files (code, comments, docs, configs) are in English. 
 
 You're running inside a docker container connected to the shared external network `my_network`. Services on `my_network` are reachable by container name (e.g., `curl http://service-name:port`). When you add new services during development, attach them to `my_network` so you can reach them from here.
 
+<<<<<<< HEAD
+You run as a non-root user with no sudo, no host filesystem outside the bind mounts (no `~/.ssh`, `~/.aws`, etc.), and no GitHub credentials — you can `git commit` (under fake identity "Claude (container)") but `git push` will fail; pushes happen on the host. Outbound internet is unrestricted.
+
 (Unless I explicitly say you're not in docker.)
+=======
+(Unless I explicitly say you're not in docker.)
+>>>>>>> 4c5471a9fc85b4e150749a61da4eb4849a6b5d53
