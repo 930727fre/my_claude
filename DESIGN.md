@@ -8,7 +8,7 @@ Design rationale, trade-offs, and attack surface analysis. The operational guide
 
 - All repos share a single Claude Code container; compose lives in `~/my_claude/`, independent of any project
 - Repos are bind-mounted into the container; switch projects with `cd` inside the session
-- OAuth token and conversation history live in one named volume; history is still isolated per-cwd (Claude Code keys on cwd)
+- OAuth token and conversation history live in a named volume mounted at `$HOME` (covers both `~/.claude/` and the sibling `~/.claude.json` file Claude Code writes); history is still isolated per-cwd (Claude Code keys on cwd)
 - User instructions (`CLAUDE.md`) are maintained in the `~/my_claude/` git repo and bind-mounted into the container
 - Container runs as a non-root user (UID/GID matching the host) to avoid bind-mount ownership contamination
 - An external network (`my_network`) gives Claude access to other app stacks' services
@@ -33,7 +33,7 @@ Containerization confines Claude's execution to an explicit boundary, which is a
 
 ### Decision 1: Claude runs in a container; host has nothing installed
 
-**Purpose**: limit the scope of what Claude can do when it runs commands. Its filesystem view is confined to the explicitly mounted directories plus `/home/claude/.claude/`. It can't see `~/.ssh`, `~/.aws`, or any other sensitive directory on the host.
+**Purpose**: limit the scope of what Claude can do when it runs commands. Its filesystem view is confined to the container itself plus the explicitly mounted host paths (your repos and `CLAUDE.md`). It can't see `~/.ssh`, `~/.aws`, or any other sensitive directory on the host.
 
 **Trade-offs**:
 
@@ -54,36 +54,45 @@ Containerization confines Claude's execution to an explicit boundary, which is a
 - ✅ Shared across all repos, so OAuth login only happens once
 - ⚠️ Claude can see every service on `my_network` — accepted as known risk
 
-### Decision 3: OAuth token stored in a single named volume
+<a id="decision-3"></a>
+### Decision 3: OAuth and conversation history stored in a named volume mounted at `$HOME`
 
 **Setup**:
 
 ```yaml
 volumes:
-  - claude-data:/home/claude/.claude
+  - claude-data:/home/claude
 ```
 
 **Purpose**:
 
-- OAuth persists and is shared across all repos — log in once
+- OAuth persists across container rebuilds and is shared across all repos — log in once
 - Container writes don't contaminate the host filesystem
+- State lifetime decoupled from container lifetime — `docker compose down && up` is safe
 
-**What's actually inside the volume**:
+**Why `$HOME`, not `~/.claude/`**:
 
-- `.credentials.json` (OAuth token)
-- `projects/<hash>/` (conversation history, used by `claude --resume`)
-- `settings.json` (Claude Code settings)
-- Other files Claude Code generates
+Claude Code splits its state across two paths: `~/.claude/` (a directory holding credentials, projects/, settings) AND `~/.claude.json` (a sibling file in `$HOME` holding account identity, MCP config, oauth state). A volume mounted at `~/.claude/` covers the directory but misses the sibling file. Container rebuild then loses `.claude.json`, which forces re-login even though history persists — a confusing half-broken state. Mounting one level up at `$HOME` covers both with one volume.
+
+**What's in the volume**:
+
+- `.claude/.credentials.json` (OAuth token)
+- `.claude/projects/<hash>/` (conversation history, used by `claude --resume`)
+- `.claude/settings.json` (Claude Code settings)
+- `.claude.json` (user-level state: account identity, MCP config, oauth state)
+- Whatever else lands in `$HOME` over time: shell history, `.npm/`, `.cache/`, ad-hoc `.gitconfig` (see [Decision 7](#decision-7)), etc.
 
 **History isolation**: even though every repo shares the volume, Claude Code keys `projects/<hash>/` on a hash derived from cwd, so history is naturally isolated per-cwd — as long as you launch claude from the repo root, different repos' histories don't mix. Note this is cwd-based, not repo-based: launching from a subdirectory of the same repo is treated as a separate project with its own history.
 
 **Trade-offs**:
 
-- ✅ One OAuth login
+- ✅ One OAuth login that survives container rebuilds, version bumps, `--build`, GUI delete
+- ✅ `docker compose down` is safe; only `docker volume rm my_claude_claude-data` (or `down -v`) wipes state
 - ✅ Token persists without leaking to the host filesystem
 - ✅ Conversation history still per-cwd
-- ✅ Recoverable: `docker volume rm my_claude_claude-data` forces a fresh login
-- ⚠️ Inspecting history requires `docker run` into the volume
+- ⚠️ Volume scope is wider than just Claude state — also persists shell history, npm cache, anything that lands in `$HOME`
+- ⚠️ Image-baked dotfile trap: anything the Dockerfile writes under `$HOME` gets one-shot copied into the volume on first init and then silently shadows later Dockerfile edits. The Dockerfile is therefore kept clean of `$HOME` writes (see [Decision 7](#decision-7))
+- ⚠️ Inspecting state when container is down requires `docker run` with a temporary mount
 
 <a id="decision-4"></a>
 ### Decision 4: User instructions live in a host git repo, bind-mounted in
@@ -117,7 +126,7 @@ volumes:
 
 **Why the bind sits on top of a named volume**:
 
-The entire `/home/claude/.claude/` is a named volume, **but `CLAUDE.md` (a single file) is overridden by a bind mount**. This mount overlay is officially supported by docker: multiple mounts on the same point are sorted by target-path depth, and the child path always overrides the parent (independent of YAML write order). This lets us "use volume by default, but make exceptions for specific files".
+The entire `/home/claude/` is a named volume, **but `CLAUDE.md` (a single file) is overridden by a bind mount**. This mount overlay is officially supported by docker: multiple mounts on the same point are sorted by target-path depth, and the child path always overrides the parent (independent of YAML write order). This lets us "use volume by default, but make exceptions for specific files".
 
 In practice the compose entry uses long-form syntax with `create_host_path: false`: if the source (`~/my_claude/CLAUDE.md`) doesn't exist, `compose up` fails immediately instead of docker's default behavior (silently creating an empty directory, with the container starting up but Claude unable to read user instructions, with no error raised).
 
@@ -189,24 +198,28 @@ This design keeps auto memory enabled and accepts the risk — cross-session mem
 - ⚠️ Claude can't open PRs by itself — no fully automated "edit → push → open PR" flow
 - Workflow impact: you have an extra "push from host" step, but that step is also a review gate
 
-### Decision 7: Git inside the container is authored as you, with a container tag
+<a id="decision-7"></a>
+### Decision 7: Git identity is set ad-hoc inside the container, not baked into the image
 
-**Setup** (in the Dockerfile):
+**Setup**: nothing in the Dockerfile. On the first commit inside a fresh container, git fails loudly with "Author identity unknown" and prints the exact commands to set it.
 
-```dockerfile
-RUN git config --global user.email "930727fre@gmail.com" && \
-    git config --global user.name "Freddy Chuang (my_claude container)"
+**Why not bake it**: the named volume mounted at `$HOME` (see [Decision 3](#decision-3)) seeds itself from the image on first attach and shadows any image-baked dotfile thereafter. If `.gitconfig` were created by the Dockerfile, the volume would copy it once and then forever ignore later Dockerfile edits — silent drift. Keeping `$HOME` free of image-baked content avoids the trap for `.gitconfig` and anything similar.
+
+**Workflow when you hit the prompt**:
+
+```bash
+git config --global user.email "you@example.com"
+git config --global user.name "Your Name (my_claude container)"
 ```
 
-**Purpose**:
+The `(my_claude container)` suffix is recommended — it makes container-authored commits visually distinct in `git log` on the host. The values write into `.gitconfig` inside the volume, so they persist across `docker compose down` and only need to be set again after a `docker volume rm`.
 
-- Lets `git commit` work (git requires an author identity)
-- The `(my_claude container)` suffix in the author name makes container-authored commits visually distinct in `git log` on the host
+**Failure is loud, not silent**: `git commit` refuses with a clear error message before producing any commit. Recoverable, not a footgun.
 
 <a id="decision-8"></a>
 ### Decision 8: Container runs as a non-root user, UID/GID aligned with the host
 
-**Setup**: see the `useradd` + `USER claude` + `mkdir .claude` block in [`Dockerfile.claude`](./Dockerfile.claude).
+**Setup**: see the `useradd` + `USER claude` block in [`Dockerfile.claude`](./Dockerfile.claude).
 
 **Background**:
 
@@ -218,10 +231,6 @@ On Linux, container UIDs **map directly** to host UIDs (when user namespaces are
 - **`sudo git push` has its own issues**: root's `$HOME` is `/root`, so it can't read your SSH key
 
 **Solution**: create a non-root user inside the container whose UID/GID matches the host user, eliminating the ownership mismatch at its source.
-
-**Why pre-create `.claude`**:
-
-On first mount, docker copies the contents (including ownership) of the mount target from the image into the volume. If the image doesn't have `/home/claude/.claude/`, the docker daemon creates the mount point and it ends up root-owned, leaving the `claude` user unable to write to it. Pre-creating an empty directory lets the volume inherit the right ownership.
 
 **Trade-offs**:
 
@@ -404,7 +413,7 @@ A few principles running through this design:
   - Conversation history: medium trust
   - Arbitrary code from dependencies running inside the container: low trust
 
-  Different trust levels don't share a single storage location. That's why `~/.claude/` is split into "volume + user instructions bind", not handled as one directory.
+  Different trust levels don't share a single storage location. That's why the container's `$HOME` is split into "named volume for Claude-managed state + read-only bind mount for `CLAUDE.md`", not handled as one directory.
 
 - **The container has attribution, not credentials**
 

@@ -1,6 +1,6 @@
 # my_claude
 
-Docker compose setup for a single Claude Code container shared across all your repos. Claude runs inside the container without direct access to the host filesystem; OAuth and conversation history live in a named volume, and user instructions (`CLAUDE.md`) are bind-mounted in.
+Docker compose setup for a single Claude Code container shared across all your repos. Claude runs inside the container without direct access to the host filesystem; OAuth and conversation history live in a named volume mounted at `$HOME` (covers both `~/.claude/` and the sibling `~/.claude.json` file Claude Code writes), and user instructions (`CLAUDE.md`) are bind-mounted in.
 
 Design rationale, attack surface analysis, and all trade-offs are in [`DESIGN.md`](./DESIGN.md).
 
@@ -74,6 +74,7 @@ When you're not using the container you can `docker compose down`, but idle has 
 - **Conversation history is keyed by cwd.** Different subdirectories of the same repo are treated as different projects with separate histories — get into the habit of launching `claude` from the repo root.
 - **`HOST_UID` / `HOST_GID` must be exported in your shell.** Compose pulls these into the build args; if they're missing, every `docker compose` command fails immediately. This is the defense against silent ownership mismatch — bind-mounted files would otherwise end up with the wrong owner, host-side git would get blocked by `safe.directory`, and editing would need sudo. Run `./setup.sh` to see the export lines to add.
 - **Strongly recommended: disable git hooks globally on the host**: `git config --global core.hooksPath /dev/null`. `setup.sh` warns you if this isn't set. See [`DESIGN.md`](./DESIGN.md#git-hooks) for the reasoning.
+- **First commit on a fresh container will fail with "Author identity unknown"** — git identity isn't baked into the image (would get shadowed by the volume; see [`DESIGN.md`](./DESIGN.md#decision-7)). Set it once with `git config --global user.email/name` inside the container; it persists in the volume.
 
 ---
 

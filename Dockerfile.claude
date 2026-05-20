@@ -22,13 +22,13 @@ RUN groupadd --gid ${USER_GID} claude \
 USER claude
 WORKDIR /home/claude
 
-# Pre-create .claude directory: the named volume inherits this directory's
-# ownership on first initialization. Without this, the docker daemon creates
-# the mount point as root-owned and the claude user can't write to it.
+# Pre-create .claude so Docker doesn't claim it as root for the CLAUDE.md bind mount.
+# An empty directory has no shadowing risk (only files with content are affected by
+# the volume-init trap described in DESIGN.md Decision 3).
 RUN mkdir -p /home/claude/.claude
 
-# Identity for in-container commits; the suffix makes them visually distinct in `git log` on the host
-RUN git config --global user.email "930727fre@gmail.com" && \
-    git config --global user.name "Freddy Chuang (my_claude container)"
+# Git identity is NOT baked here. The named volume at $HOME shadows any
+# image-baked dotfile after first init (silently ignoring later edits).
+# Identity is set ad-hoc inside the container on first commit. See DESIGN.md Decision 7.
 
 ENTRYPOINT ["/bin/bash"]

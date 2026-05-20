@@ -9,7 +9,10 @@ services:
         USER_UID: "${HOST_UID:?HOST_UID not exported — run ./setup.sh for instructions}"
         USER_GID: "${HOST_GID:?HOST_GID not exported — run ./setup.sh for instructions}"
     volumes:
-      - claude-data:/home/claude/.claude
+      # Named volume mounted at $HOME (not at ~/.claude/) so it covers both
+      # ~/.claude/ AND the sibling ~/.claude.json file Claude Code writes for
+      # account identity / MCP / oauth state. See DESIGN.md Decision 3.
+      - claude-data:/home/claude
       # CLAUDE.md uses long-form syntax + create_host_path: false:
       # if source doesn't exist, compose up fails immediately. Without this,
       # docker's default behavior silently creates an empty directory in its
