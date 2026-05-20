@@ -1,0 +1,9 @@
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+
+# 通用暫存
+*.tmp
+scratch.*
+debug.log

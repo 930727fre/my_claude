@@ -1,0 +1,27 @@
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @anthropic-ai/claude-code
+
+# 建立非 root user，UID/GID 對應 host 的你（見 DESIGN.md 決策 8）
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid ${USER_GID} claude \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash claude
+
+USER claude
+WORKDIR /home/claude
+
+# 預建 .claude 目錄：named volume 第一次初始化時會繼承這個目錄的 ownership。
+# 沒這行的話，volume mount point 由 docker daemon 建立會是 root-owned，container 內 claude user 寫不進去。
+RUN mkdir -p /home/claude/.claude
+
+# 假身份：能 commit，但不洩漏真實 GitHub 身份
+RUN git config --global user.email "claude@container.local" && \
+    git config --global user.name "Claude (container)"
+
+ENTRYPOINT ["/bin/bash"]

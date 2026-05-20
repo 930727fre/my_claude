@@ -1,0 +1,32 @@
+services:
+  claude:
+    build:
+      context: .
+      dockerfile: Dockerfile.claude
+      args:
+        USER_UID: "1000"
+        USER_GID: "1000"
+    volumes:
+      - claude-data:/home/claude/.claude
+      # CLAUDE.md 用 long-form syntax + create_host_path: false：
+      # source 不存在時 compose up 直接 fail，避免 docker 預設行為（自動建空目錄頂上去，
+      # 導致 container 起來但 Claude 讀不到 user instructions、且不報錯）
+      - type: bind
+        source: ${HOME}/my_claude/CLAUDE.md
+        target: /home/claude/.claude/CLAUDE.md
+        bind:
+          create_host_path: false
+      # 把需要的 repo 掛進來，自行增減
+      - ${HOME}/repoA:/home/claude/repoA
+      - ${HOME}/repoB:/home/claude/repoB
+    stdin_open: true
+    tty: true
+    networks:
+      - my_network
+
+volumes:
+  claude-data:
+
+networks:
+  my_network:
+    external: true
