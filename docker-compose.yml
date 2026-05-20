@@ -4,19 +4,23 @@ services:
       context: .
       dockerfile: Dockerfile.claude
       args:
-        USER_UID: "1000"
-        USER_GID: "1000"
+        # HOST_UID / HOST_GID must be exported in the calling shell.
+        # Compose fails loudly here if either is unset — see README setup steps.
+        USER_UID: "${HOST_UID:?HOST_UID not exported — run ./setup.sh for instructions}"
+        USER_GID: "${HOST_GID:?HOST_GID not exported — run ./setup.sh for instructions}"
     volumes:
       - claude-data:/home/claude/.claude
-      # CLAUDE.md 用 long-form syntax + create_host_path: false：
-      # source 不存在時 compose up 直接 fail，避免 docker 預設行為（自動建空目錄頂上去，
-      # 導致 container 起來但 Claude 讀不到 user instructions、且不報錯）
+      # CLAUDE.md uses long-form syntax + create_host_path: false:
+      # if source doesn't exist, compose up fails immediately. Without this,
+      # docker's default behavior silently creates an empty directory in its
+      # place, the container starts but Claude can't read user instructions,
+      # and no error is raised.
       - type: bind
         source: ${HOME}/my_claude/CLAUDE.md
         target: /home/claude/.claude/CLAUDE.md
         bind:
           create_host_path: false
-      # 把需要的 repo 掛進來，自行增減
+      # Mount whatever repos you need — adjust freely
       - ${HOME}/repoA:/home/claude/repoA
       - ${HOME}/repoB:/home/claude/repoB
     stdin_open: true

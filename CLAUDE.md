@@ -1,27 +1,34 @@
 # User Instructions
 
-## 編輯行為
+## Editing behavior
 
-「刪掉 X」意思是直接刪除，不要改寫成保留說明（例如「✅ X 保留，因為...」）。如果不確定是完全刪除還是改成別的，先問，不要用保留說明作折衷。
+"Delete X" means actually remove it — don't rewrite it as a "kept for reason Y" note (e.g. "✅ X kept because..."). If you're unsure whether to delete entirely or replace with something else, ask first instead of compromising with a "kept" annotation.
 
 ## Git
 
-Commit 訊息不加 `Co-Authored-By` trailer。
+- Don't add `Co-Authored-By` trailer to commit messages
+- Pre-commit flow: `git status` → `git diff` → `git add .` → `git commit`. Use `git add .` rather than listing individual files (the prior status + diff already covered review, so nothing unintended gets staged)
 
-## 指令確認
+## Instruction clarification
 
-收到模糊或簡短的指令時，先說「我理解成 X，往下做」或問一行確認，不要猜完就執行。
+When you receive ambiguous or terse instructions, either say "I'm reading this as X, proceeding" or ask one quick clarifying question — don't guess and execute.
 
-## Memory 管理
+## Memory management
 
-禁止在 `<project>/.claude/CLAUDE.md` 或 `<project>/CLAUDE.md` 寫入專案層級的記憶。所有專案層級的 memory 一律寫在 `~/.claude/projects/<path>/memory/`。
+Never write project-level memory into `<project>/.claude/CLAUDE.md` or `<project>/CLAUDE.md` (pollutes the codebase and forces gitignore work for every repo). All project-level memory goes in `~/.claude/projects/<path>/memory/`.
 
-## Coding agent 與 .env
+## Coding agent and .env
 
-不要建議用 `.env` 傳設定給 docker compose / 其他工具。理由：
-- coding agent 在該目錄會把 `.env` 讀進 context（含密鑰時會洩漏給 LLM provider）
-- `.env` 容易忘記加 `.gitignore`
+Don't suggest `.env` for passing config to docker compose or other tools — the coding agent reads `.env` into context (any secrets inside leak to the LLM provider), and it's easy to forget gitignoring.
 
-我的實際做法：
-- 非密鑰、不常改的值（如 UID/GID）：寫死在設定檔本身，需要 override 時直接改檔
-- 密鑰：用 Bitwarden 管理，需要時手動複製進當前 shell 設成 env var（PowerShell `$env:X="..."`、bash `export X=...`），shell 關掉就消失。**不寫進 shell rc、不跨 session 持久化、host 上不留 plaintext 密鑰檔**
+Use instead: hardcode non-secret values directly in the config file; for secrets, manage them in Bitwarden and manually export into the current shell when needed (PowerShell `$env:X="..."` / bash `export X=...`). Don't write to shell rc, don't persist across sessions.
+
+Exception (defensive mechanism): if forgetting to set a value would silently break things downstream rather than fail loudly, prefer a required env var using compose's `${VAR:?error}` syntax over hardcoding — the failure happens immediately at compose parse time. Pair with a setup script that prints the export command.
+
+## Markdown lists
+
+Use numbered lists only when order genuinely matters (steps, priority). For independent parallel items use `-` bullets — avoids renumbering on insertion/deletion and keeps diffs clean.
+
+## Language for file edits
+
+All edits Claude makes to files (code, comments, docs, configs) are in English. Conversation language follows whatever I'm using.

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-echo "Your host UID: $(id -u)"
-echo "Your host GID: $(id -g)"
+echo "Add to your shell rc (.bashrc / .zshrc):"
 echo
-echo "If these aren't 1000:1000, edit docker-compose.yml's USER_UID / USER_GID to match."
+echo "  export HOST_UID=$(id -u)"
+echo "  export HOST_GID=$(id -g)"
+echo
+echo "Then 'source' the rc file (or open a new shell) before running docker compose."
+echo "If these aren't exported, 'docker compose' commands will fail with a clear error."
