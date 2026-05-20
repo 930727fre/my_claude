@@ -22,11 +22,6 @@ RUN groupadd --gid ${USER_GID} claude \
 USER claude
 WORKDIR /home/claude
 
-# Pre-create .claude so Docker doesn't claim it as root for the CLAUDE.md bind mount.
-# An empty directory has no shadowing risk (only files with content are affected by
-# the volume-init trap described in DESIGN.md Decision 3).
-RUN mkdir -p /home/claude/.claude
-
 # Git identity is NOT baked here. The named volume at $HOME shadows any
 # image-baked dotfile after first init (silently ignoring later edits).
 # Identity is set ad-hoc inside the container on first commit. See DESIGN.md Decision 7.

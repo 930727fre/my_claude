@@ -1,6 +1,6 @@
 # my_claude
 
-Docker compose setup for a single Claude Code container shared across all your repos. Claude runs inside the container without direct access to the host filesystem; OAuth and conversation history live in a named volume mounted at `$HOME` (covers both `~/.claude/` and the sibling `~/.claude.json` file Claude Code writes), and user instructions (`CLAUDE.md`) are bind-mounted in.
+Docker compose setup for a single Claude Code container shared across all your repos. Claude runs inside the container without direct access to the host filesystem. OAuth, conversation history, and user instructions all live in a named volume mounted at `$HOME` (covers both `~/.claude/` and the sibling `~/.claude.json` file Claude Code writes). User instructions (`CLAUDE.md`) are kept in this repo as source of truth and manually pasted into the container after build.
 
 Design rationale, attack surface analysis, and all trade-offs are in [`DESIGN.md`](./DESIGN.md).
 
@@ -17,7 +17,7 @@ Design rationale, attack surface analysis, and all trade-offs are in [`DESIGN.md
 ## One-time setup
 
 ```bash
-# 1. Clone into ~/my_claude (the path is hardcoded in compose, don't change it)
+# 1. Clone the repo (convention: ~/my_claude; path no longer matters to compose)
 git clone https://github.com/<yourname>/my_claude.git ~/my_claude
 cd ~/my_claude
 
@@ -28,16 +28,22 @@ cd ~/my_claude
 # below requires HOST_UID and HOST_GID to be in the environment — if
 # they're unset, compose fails loudly with a clear error.
 
-# 3. Edit CLAUDE.md with your user instructions
+# 3. Edit CLAUDE.md to suit your preferences (stays on host as source of truth)
 
 # 4. Adjust the repos mounted in docker-compose.yml's volumes section
 #    The defaults are ~/repoA and ~/repoB — change as needed
 
-# 5. Build the image
+# 5. Build and start the container
 docker compose build
-
-# 6. Start the container (runs in the background)
 docker compose up -d
+
+# 6. Log in to Claude Code, then paste CLAUDE.md into the container
+docker compose exec claude bash
+# inside container:
+claude                       # first run triggers OAuth; also creates ~/.claude/
+# Ctrl+C out of claude, then:
+nano ~/.claude/CLAUDE.md     # paste content from host's ~/my_claude/CLAUDE.md, save
+# CLAUDE.md now persists in the volume across rebuilds
 ```
 
 ---
@@ -52,8 +58,7 @@ docker compose exec claude bash
 # Inside the container, cd to the repo you want to work on and launch claude
 cd ~/repoA
 claude
-# First run goes through the OAuth device-code flow; the token is stored
-# in the volume so you won't have to log in again
+# OAuth was done during setup and the token is in the volume, so no login needed
 ```
 
 When Claude is done editing, **push from the host**:
@@ -69,7 +74,6 @@ When you're not using the container you can `docker compose down`, but idle has 
 
 ## Important gotchas
 
-- **If `CLAUDE.md` doesn't exist, `compose up` fails immediately** (because of `create_host_path: false`). This is intentional — it prevents docker from silently mounting an empty directory in its place, where the container would start but Claude couldn't read your instructions.
 - **Push happens on the host, not in the container.** There's no GitHub credential inside the container; this is a deliberate security gate, not a bug.
 - **Conversation history is keyed by cwd.** Different subdirectories of the same repo are treated as different projects with separate histories — get into the habit of launching `claude` from the repo root.
 - **`HOST_UID` / `HOST_GID` must be exported in your shell.** Compose pulls these into the build args; if they're missing, every `docker compose` command fails immediately. This is the defense against silent ownership mismatch — bind-mounted files would otherwise end up with the wrong owner, host-side git would get blocked by `safe.directory`, and editing would need sudo. Run `./setup.sh` to see the export lines to add.
@@ -81,13 +85,17 @@ When you're not using the container you can `docker compose down`, but idle has 
 ## Updating user instructions
 
 ```bash
+# 1. Edit on host (source of truth)
 cd ~/my_claude
 vim CLAUDE.md
 git commit -am "update rule"
 git push
 
-# Sessions that are already running won't see the new version immediately.
-# Claude only reloads CLAUDE.md when a new session starts.
+# 2. Re-paste into the container
+docker compose exec claude bash
+nano ~/.claude/CLAUDE.md     # paste new content, save
+
+# Already-running claude sessions won't pick up the change until restarted.
 ```
 
 ---
@@ -96,6 +104,7 @@ git push
 
 ```bash
 # Force re-authentication and wipe all conversation history
+# (also wipes the in-container CLAUDE.md — re-paste from host after next login)
 docker volume rm my_claude_claude-data
 ```
 

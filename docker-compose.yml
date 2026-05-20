@@ -1,5 +1,6 @@
 services:
   claude:
+    container_name: claude
     build:
       context: .
       dockerfile: Dockerfile.claude
@@ -13,20 +14,19 @@ services:
       # ~/.claude/ AND the sibling ~/.claude.json file Claude Code writes for
       # account identity / MCP / oauth state. See DESIGN.md Decision 3.
       - claude-data:/home/claude
-      # CLAUDE.md uses long-form syntax + create_host_path: false:
-      # if source doesn't exist, compose up fails immediately. Without this,
-      # docker's default behavior silently creates an empty directory in its
-      # place, the container starts but Claude can't read user instructions,
-      # and no error is raised.
+      # REPLACE these placeholders with your actual repo paths before first `up`.
+      # Long-form + create_host_path: false makes compose fail loudly if the
+      # source dir doesn't exist, instead of silently creating it as root.
       - type: bind
-        source: ${HOME}/my_claude/CLAUDE.md
-        target: /home/claude/.claude/CLAUDE.md
-        read_only: true
+        source: ${HOME}/repoA
+        target: /home/claude/repoA
         bind:
           create_host_path: false
-      # Mount whatever repos you need — adjust freely
-      - ${HOME}/repoA:/home/claude/repoA
-      - ${HOME}/repoB:/home/claude/repoB
+      - type: bind
+        source: ${HOME}/repoB
+        target: /home/claude/repoB
+        bind:
+          create_host_path: false
     stdin_open: true
     tty: true
     networks:
