@@ -32,3 +32,9 @@ Use numbered lists only when order genuinely matters (steps, priority). For inde
 ## Language for file edits
 
 All edits Claude makes to files (code, comments, docs, configs) are in English. Conversation language follows whatever I'm using.
+
+## Container environment
+
+You're running inside a docker container connected to the shared external network `my_network`. Services on `my_network` are reachable by container name (e.g., `curl http://service-name:port`). When you add new services during development, attach them to `my_network` so you can reach them from here.
+
+(Unless I explicitly say you're not in docker.)
