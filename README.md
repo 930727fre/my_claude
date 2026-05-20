@@ -69,8 +69,7 @@ Container 不用時可以 `docker compose down`，但 idle 開著沒實質成本
 2. **Push 在 host 做，不在 container**。Container 內沒有 GitHub credential，這是設計上的安全閘門，不是 bug。
 3. **對話歷史 per-cwd 隔離**。同一個 repo 的不同子目錄會被視為不同 project，歷史不互通——習慣從 repo 根目錄啟動 claude。
 4. **UID/GID 必須對齊 host**。不然 bind mount 寫出的檔案 owner 跟你不一致，host 上 git 會被 `safe.directory` 擋住、`vim` 編輯要 sudo。`./setup.sh` 印出來確認。
-5. **`docker attach` 不要用**——它共用 PID 1 stdio，多 terminal 會互相干擾。多 session 用 `docker compose exec`。
-6. **強烈建議 host 全域關閉 git hooks**：`git config --global core.hooksPath /dev/null`。原因見 [`DESIGN.md`](./DESIGN.md#git-hooks)。
+5. **強烈建議 host 全域關閉 git hooks**：`git config --global core.hooksPath /dev/null`。原因見 [`DESIGN.md`](./DESIGN.md#git-hooks)。
 
 ---
 
@@ -94,22 +93,6 @@ git push
 # 強迫重新 OAuth、清掉所有對話歷史
 docker volume rm my_claude_claude-data
 ```
-
----
-
-## FAQ
-
-**Q: 我有好幾個 Claude session 同時開，編輯 CLAUDE.md 後即時生效嗎？**
-
-檔案層級即時，session 層級不會。Claude 在 session 啟動時讀一次 CLAUDE.md 後不會動態 reload。已開的 session 要 `/clear` 或退出重開才會看到新版。
-
-**Q: CLAUDE.md 該寫什麼？**
-
-純粹的協作偏好——回覆語言、commit 訊息格式、staging 習慣、設計哲學等。避免內網 URL、客戶名稱、密鑰、絕對路徑揭露身份等資訊（CLAUDE.md 會被 commit 進這個 repo，把 Claude 當外人看待自然不會在這檔寫敏感東西）。
-
-**Q: Hot reload 在 container 內不 work？**
-
-跟 Claude 設定無關，是 docker bind mount 在 Mac/Windows 上的 file watching 問題。解法：framework 配置開 polling 模式（Vite `usePolling: true`、CRA `CHOKIDAR_USEPOLLING=true`、Next.js webpack `poll: 500`）。
 
 ---
 
