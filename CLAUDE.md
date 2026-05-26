@@ -8,6 +8,7 @@
 
 - Don't add `Co-Authored-By` trailer to commit messages
 - Pre-commit flow: `git status` → `git diff` → `git add .` → `git commit`. Use `git add .` rather than listing individual files (the prior status + diff already covered review, so nothing unintended gets staged)
+- Commit identity: email `930727fre@gmail.com`, name `930727fre@my_claude_container` (set with `git config --global` — container is single-user, no need per-repo)
 
 ## Instruction clarification
 
