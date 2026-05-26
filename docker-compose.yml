@@ -5,26 +5,18 @@ services:
       context: .
       dockerfile: Dockerfile.claude
       args:
-        # HOST_UID / HOST_GID must be exported in the calling shell.
-        # Compose fails loudly here if either is unset — see README setup steps.
         USER_UID: "${HOST_UID:?HOST_UID not exported — run ./setup.sh for instructions}"
         USER_GID: "${HOST_GID:?HOST_GID not exported — run ./setup.sh for instructions}"
     volumes:
-      # Named volume mounted at $HOME (not at ~/.claude/) so it covers both
-      # ~/.claude/ AND the sibling ~/.claude.json file Claude Code writes for
-      # account identity / MCP / oauth state. See DESIGN.md Decision 3.
       - claude-data:/home/claude
-      # REPLACE these placeholders with your actual repo paths before first `up`.
-      # Long-form + create_host_path: false makes compose fail loudly if the
-      # source dir doesn't exist, instead of silently creating it as root.
       - type: bind
-        source: ${HOME}/repoA
-        target: /home/claude/repoA
+        source: ${HOME}/utilities
+        target: /home/claude/utilities
         bind:
           create_host_path: false
       - type: bind
-        source: ${HOME}/repoB
-        target: /home/claude/repoB
+        source: ${HOME}/workspace
+        target: /home/claude/workspace
         bind:
           create_host_path: false
     stdin_open: true
